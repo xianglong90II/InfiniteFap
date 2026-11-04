@@ -1,0 +1,7 @@
+Beat Detection TCN
+Repository: https://huggingface.co/finnvoorhees/beat-detection-tcn
+Checkpoint: model.pt (SHA256 0a2e4420f48cdc6554a5e57214e23cdc89c0dcbc6d8987dc34647cfe33cf96fc)
+Model license: MIT (see repository model card).
+ONNX export: scripts/export_beat_tcn.py
+Input: log-mel spectrogram [1, 81, frames], 22050 Hz, 2048 FFT, 220 hop, fmin 30 Hz, fmax 11000 Hz, power=2 followed by log1p.
+Output: beat logits [1, frames].

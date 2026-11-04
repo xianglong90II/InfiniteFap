@@ -1,0 +1,3 @@
+Material Design Icons are provided by Google under the Apache License 2.0.
+Source: https://github.com/google/material-design-icons
+Icons in this directory: heart.svg (favorite), star.svg, flare.svg.
