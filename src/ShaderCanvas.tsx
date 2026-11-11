@@ -80,6 +80,7 @@ type Props = {
 	effects: ShaderEffects;
 	blastEffects: BlastShaderEffects;
 	fragmentSource: string;
+	onCanvas?: (canvas: HTMLCanvasElement | null) => void;
 };
 
 type FrameVideo = HTMLVideoElement & {
@@ -101,7 +102,7 @@ function compile(gl: WebGLRenderingContext, type: number, source: string): WebGL
 }
 
 export default function ShaderCanvas(props: Props) {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
+	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const [shaderError, setShaderError] = useState('');
 	const latest = useRef(props);
 	latest.current = props;
@@ -250,7 +251,7 @@ export default function ShaderCanvas(props: Props) {
 	useEffect(() => { invalidateRef.current(); }, [props.fillMode, props.outputWidth, props.outputHeight, props.effectSequence, props.intensity, props.symbol, props.duration, props.effects, props.blastSequence, props.blastIntensity, props.blastDuration, props.blastEffects]);
 
 	return <>
-		<canvas ref={canvasRef} className="shader-background-canvas" aria-label="WebGL Shader 铺面背景预览" />
+		<canvas ref={(canvas) => { canvasRef.current = canvas; props.onCanvas?.(canvas); }} className="shader-background-canvas" aria-label="WebGL Shader 铺面背景预览" />
 		{shaderError && <span className="shader-runtime-error" title={shaderError}>Shader 错误</span>}
 	</>;
 }

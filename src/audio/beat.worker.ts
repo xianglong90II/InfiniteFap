@@ -1,23 +1,24 @@
 import * as ort from 'onnxruntime-web';
-import { computeLogMel } from './features';
-import { pickBeatPeaks } from './peakPicking';
+import { BEAT_THIS, beatThisWindowStarts, computeBeatThisLogMel, pickBeatThisEvents } from './beatThis';
+import type { DetectedBeat } from '../types';
 
-type WorkerRequest = { samples: ArrayBuffer; threshold?: number; minInterval?: number };
-type WorkerResponse = { type: 'status'; message: string } | { type: 'result'; beats: number[]; backend: string } | { type: 'error'; message: string };
+type WorkerRequest = { samples: ArrayBuffer };
+type WorkerResponse = { type: 'status'; message: string } | { type: 'result'; beats: DetectedBeat[]; backend: string } | { type: 'error'; message: string };
 
 let sessionPromise: Promise<{ session: ort.InferenceSession; backend: string }> | undefined;
+let filterbankPromise: Promise<Float32Array> | undefined;
 
 async function getSession() {
   if (!sessionPromise) {
     sessionPromise = (async () => {
-      const modelUrl = new URL(`${import.meta.env.BASE_URL}models/beat-detection-tcn.onnx`, self.location.origin).href;
+      const modelUrl = new URL(`${import.meta.env.BASE_URL}models/beat_this.onnx`, self.location.origin).href;
       try {
         if ('gpu' in navigator) {
           const session = await ort.InferenceSession.create(modelUrl, { executionProviders: ['webgpu'] });
           return { session, backend: 'WebGPU' };
         }
       } catch {
-        // WebGPU drivers may not support every ONNX operator; WASM is the local fallback.
+        // Fall back to the portable CPU/WASM provider on unsupported WebGPU implementations.
       }
       const session = await ort.InferenceSession.create(modelUrl, { executionProviders: ['wasm'] });
       return { session, backend: 'WASM' };
@@ -26,20 +27,58 @@ async function getSession() {
   return sessionPromise;
 }
 
+async function getFilterbank() {
+  if (!filterbankPromise) {
+    filterbankPromise = (async () => {
+      const url = new URL(`${import.meta.env.BASE_URL}models/mel-filterbank.bin`, self.location.origin);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Mel filterbank 加载失败：HTTP ${response.status}`);
+      return new Float32Array(await response.arrayBuffer());
+    })();
+  }
+  return filterbankPromise;
+}
+
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
+  const post = (message: WorkerResponse) => self.postMessage(message);
   try {
-    const post = (message: WorkerResponse) => self.postMessage(message);
-    post({ type: 'status', message: '载入本地 TCN ONNX 模型…' });
-    const [{ session, backend }, { data, frames }] = await Promise.all([
-      getSession(),
-      Promise.resolve().then(() => computeLogMel(new Float32Array(event.data.samples))),
-    ]);
-    post({ type: 'status', message: `TCN 正在分析 ${frames.toLocaleString()} 帧（${backend}）…` });
-    const tensor = new ort.Tensor('float32', data, [1, 81, frames]);
-    const outputs = await session.run({ [session.inputNames[0]]: tensor });
-    const logits = outputs[session.outputNames[0]].data as Float32Array;
-    const activations = Float32Array.from(logits, (value) => 1 / (1 + Math.exp(-value)));
-    post({ type: 'result', beats: pickBeatPeaks(activations, event.data.threshold ?? 0.3, event.data.minInterval ?? 0.2), backend });
+    post({ type: 'status', message: '载入 Beat This! 模型与 Mel filterbank…' });
+    const [{ session, backend }, filterbank] = await Promise.all([getSession(), getFilterbank()]);
+    const { data, frames } = computeBeatThisLogMel(new Float32Array(event.data.samples), filterbank);
+    const starts = beatThisWindowStarts(frames);
+    const beatLogits = new Float32Array(frames).fill(Number.NEGATIVE_INFINITY);
+    const downbeatLogits = new Float32Array(frames).fill(Number.NEGATIVE_INFINITY);
+    const assigned = new Uint8Array(frames);
+    const inputName = session.inputNames.includes('spect') ? 'spect' : session.inputNames[0];
+    const beatOutput = session.outputNames.find((name) => name.toLowerCase().includes('beat') && !name.toLowerCase().includes('downbeat'));
+    const downbeatOutput = session.outputNames.find((name) => name.toLowerCase().includes('downbeat'));
+    if (!beatOutput || !downbeatOutput) throw new Error(`Beat This! 输出签名不符：${session.outputNames.join(', ')}`);
+
+    const inputData = new Float32Array(BEAT_THIS.chunkSize * BEAT_THIS.melBins);
+    for (let windowIndex = 0; windowIndex < starts.length; windowIndex += 1) {
+      const start = starts[windowIndex];
+      inputData.fill(0);
+      for (let localFrame = 0; localFrame < BEAT_THIS.chunkSize; localFrame += 1) {
+        const sourceFrame = start + localFrame;
+        if (sourceFrame < 0 || sourceFrame >= frames) continue;
+        inputData.set(data.subarray(sourceFrame * BEAT_THIS.melBins, (sourceFrame + 1) * BEAT_THIS.melBins), localFrame * BEAT_THIS.melBins);
+      }
+      const outputs = await session.run({ [inputName]: new ort.Tensor('float32', inputData, [1, BEAT_THIS.chunkSize, BEAT_THIS.melBins]) });
+      const beatWindow = outputs[beatOutput].data as Float32Array;
+      const downbeatWindow = outputs[downbeatOutput].data as Float32Array;
+      const destinationStart = start + BEAT_THIS.borderSize;
+      const sourceStart = BEAT_THIS.borderSize;
+      const count = Math.min(BEAT_THIS.chunkSize - 2 * BEAT_THIS.borderSize, frames - destinationStart);
+      for (let offset = 0; offset < count; offset += 1) {
+        const destination = destinationStart + offset;
+        if (destination < 0 || assigned[destination]) continue;
+        assigned[destination] = 1;
+        beatLogits[destination] = beatWindow[sourceStart + offset];
+        downbeatLogits[destination] = downbeatWindow[sourceStart + offset];
+      }
+      post({ type: 'status', message: `Beat This! 正在分析节拍与小节重拍（${windowIndex + 1}/${starts.length}，${backend}）…` });
+    }
+    post({ type: 'result', beats: pickBeatThisEvents(beatLogits, downbeatLogits), backend });
   } catch (error) {
     self.postMessage({ type: 'error', message: error instanceof Error ? error.message : String(error) } satisfies WorkerResponse);
   }

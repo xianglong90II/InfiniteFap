@@ -1,4 +1,4 @@
-/* Stage composition: video texture is the bottom layer, chart lanes sit above it. */
+/* Stage stack: video → transition → hit shader → top shader → lane → notes/effects. */
 .game-stage {
   isolation: isolate;
   background: #101018;
@@ -6,7 +6,17 @@
 .shader-background-canvas {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.top-shader-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
   display: block;
   width: 100%;
   height: 100%;
@@ -25,22 +35,31 @@
   pointer-events: none;
 }
 .game-stage .stage-video-shade {
-  z-index: 2;
+  z-index: 1;
   background: linear-gradient(90deg, #09091244, #11101a1c 48%, #09091244), linear-gradient(0deg, #09091266, #0909120a 45%, #09091230);
   pointer-events: none;
 }
 .game-stage .game-lane {
-  z-index: 3;
+  z-index: 4;
+  overflow: visible;
 }
 .game-stage .stage-hud,
 .game-stage .stage-side-label,
 .game-stage .stage-bottom-info {
-  z-index: 4;
+  z-index: 5;
 }
 .game-stage .hit-burst,
 .game-stage .perfect-feedback {
   z-index: 6;
 }
+.game-stage .falling-note,
+.game-stage .lane-judgement { z-index: 6; }
+.export-format-options { display: flex; gap: 8px; margin: 8px 0 12px; }
+.export-format-options label { display: inline-flex; align-items: center; gap: 6px; min-height: 31px; padding: 0 10px; border: 1px solid #45414f; border-radius: 6px; background: #1b1a23; color: #d0ccd6; font-size: 9px; cursor: pointer; }
+.export-format-options label:has(input:checked) { border-color: #ad92ef; background: #30273e; color: #f0e9ff; }
+.export-format-options input { margin: 0; accent-color: #c4a8ff; }
+.export-layer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 8px 0 12px; }
+.export-layer-grid .effect-switch { min-height: 32px; }
 
 /* A compact, scrollable settings drawer that stays usable at every viewport size. */
 .main-menu-panel {
@@ -93,7 +112,7 @@
 .menu-panel-heading h2 svg { color: #c3a9ff; }
 .menu-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
   margin: 11px 0 2px;
   padding: 4px;
@@ -690,9 +709,10 @@
 .chart-timeline-audio .chart-playhead { z-index: 5; }
 .timeline-zoom-hint { margin-top: 5px; color: #888492; font-size: 8px; text-align: right; }
 .video-warmup-control { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 9px; margin: 8px 0 5px; }
-.video-warmup-control > button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 27px; padding: 0 8px; border: 1px solid #55496a; border-radius: 5px; background: #272231; color: #e8defc; font-size: 8px; cursor: pointer; }
-.video-warmup-control > button:not(:disabled):hover { border-color: #b9a2ff; background: #342b42; }
-.video-warmup-control > button:disabled { opacity: .58; cursor: not-allowed; }
+.video-warmup-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
+.video-warmup-buttons button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 27px; padding: 0 8px; border: 1px solid #55496a; border-radius: 5px; background: #272231; color: #e8defc; font-size: 8px; cursor: pointer; }
+.video-warmup-buttons button:not(:disabled):hover { border-color: #b9a2ff; background: #342b42; }
+.video-warmup-buttons button:disabled { opacity: .58; cursor: not-allowed; }
 .video-warmup-control > span { overflow: hidden; color: #9994a3; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .video-warmup-progress { grid-column: 1 / -1; height: 3px; overflow: hidden; border-radius: 4px; background: #292733; }
 .video-warmup-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #9f82ec, #caff90); transition: width 180ms ease; }
@@ -729,41 +749,30 @@
 .transition-preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
 .transition-preset-grid button { min-width: 0; min-height: 31px; padding: 4px 2px; border: 1px solid #45414f; border-radius: 5px; background: #1b1a23; color: #bbb6c4; font-size: 7px; cursor: pointer; }
 .transition-preset-grid button.active { border-color: #ad92ef; background: #30273e; color: #f0e9ff; }
-.scene-transition { position: absolute; z-index: 2; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; animation-fill-mode: both; }
-.scene-transition-crossfade { animation-name: scene-crossfade; }
-.scene-transition-wipe-left { animation-name: scene-wipe-left; }
-.scene-transition-wipe-right { animation-name: scene-wipe-right; }
-.scene-transition-wipe-up { animation-name: scene-wipe-up; }
-.scene-transition-wipe-down { animation-name: scene-wipe-down; }
-.scene-transition-zoom { animation-name: scene-zoom; }
-.scene-transition-blur { animation-name: scene-blur; }
-.scene-transition-flash { animation-name: scene-flash; }
-@keyframes scene-crossfade { to { opacity: 0; } }
-@keyframes scene-wipe-left { to { clip-path: inset(0 100% 0 0); } }
-@keyframes scene-wipe-right { to { clip-path: inset(0 0 0 100%); } }
-@keyframes scene-wipe-up { to { clip-path: inset(100% 0 0 0); } }
-@keyframes scene-wipe-down { to { clip-path: inset(0 0 100% 0); } }
-@keyframes scene-zoom { to { opacity: 0; transform: scale(1.16); } }
-@keyframes scene-blur { to { opacity: 0; filter: blur(18px); transform: scale(1.04); } }
-@keyframes scene-flash { 25% { filter: brightness(2.4); opacity: 1; } to { opacity: 0; } }
+.scene-transition { position: absolute; z-index: 2; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .transport-seek { touch-action: none; cursor: ew-resize; }
 
 .game-stage .lane-empty { z-index: 3; pointer-events: none; }
 .explosion-countdown {
   position: absolute;
   z-index: 7;
-  inset: 0;
+  top: 50%;
+  left: 50%;
   display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 8px;
-  background: radial-gradient(circle, #15121dbb 0, #15121d30 35%, transparent 68%);
-  color: #f5eaff;
-  text-shadow: 0 0 18px #bb92ff;
+  place-items: center;
+  width: min(42vmin, 210px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  color: #fff;
+  transform: translate(-50%, -50%);
   pointer-events: none;
 }
-.explosion-countdown span { font-size: clamp(12px, 2vw, 18px); letter-spacing: .18em; }
-.explosion-countdown strong { color: #d8ff9b; font: 800 clamp(54px, 12vw, 120px)/.9 Manrope, sans-serif; animation: explosion-countdown-pop .95s ease-out both; }
+.explosion-countdown-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.countdown-ring-track,
+.countdown-ring-progress { fill: none; stroke-width: 5; }
+.countdown-ring-track { stroke: #ffffff0a; }
+.countdown-ring-progress { stroke: #fff; stroke-linecap: round; stroke-dasharray: 276.46; stroke-dashoffset: 0; animation: countdown-ring-drain 1s linear both; }
+.explosion-countdown strong { position: relative; z-index: 1; color: #fff; font: 500 clamp(54px, 12vw, 100px)/1 Manrope, sans-serif; letter-spacing: -.06em; animation: explosion-countdown-pop .95s ease-out both; }
 .explosion-effect {
   --blast-color: #caff90;
   position: absolute;
@@ -814,4 +823,5 @@
 @keyframes explosion-pulse-ring { 0%, 100% { opacity: .1; transform: translate(-50%, -50%) scale(.72); } 50% { opacity: 1; transform: translate(-50%, -50%) scale(1.18); } }
 @keyframes explosion-title { 0% { opacity: 0; filter: blur(14px); letter-spacing: .62em; transform: scale(.68) translateY(12px); } 38% { opacity: 1; filter: blur(0); letter-spacing: .24em; transform: scale(1) translateY(0); } 74% { opacity: 1; filter: blur(0); transform: scale(1); } 100% { opacity: 0; filter: blur(8px); letter-spacing: .38em; transform: scale(1.12) translateY(-8px); } }
 @keyframes explosion-countdown-pop { from { opacity: 0; transform: scale(.5); } 35% { opacity: 1; transform: scale(1.1); } to { opacity: .9; transform: scale(1); } }
+@keyframes countdown-ring-drain { to { stroke-dashoffset: 276.46; } }
 @media (prefers-reduced-motion: reduce) { .explosion-effect *, .explosion-countdown strong { animation-duration: 1ms !important; } }
