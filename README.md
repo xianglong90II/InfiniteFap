@@ -20,6 +20,7 @@ npm run build
 
 - Beat This! 模型来自 [musetric/beat-this-onnx](https://huggingface.co/musetric/beat-this-onnx)，上游 checkpoint 来自 [CPJKU/beat_this](https://github.com/CPJKU/beat_this)，MIT；署名和完整许可见 [public/models/BEAT-THIS-MODEL-CARD.txt](public/models/BEAT-THIS-MODEL-CARD.txt)。
 - ONNX 权重约 191 MB，Mel filterbank 一并存放在 `public/models/`。模型在 Web Worker 中使用 ONNX Runtime Web 推理；WebGPU 不可用/不兼容时回退 WASM。
+- `beat_this.onnx` 通过 Git LFS 管理；克隆仓库前需安装 Git LFS，确保工作区获取到真实模型文件。
 - 前处理遵循模型配置：22050 Hz、算术平均声道混合、1024 点周期 Hann 中心化 STFT、441 hop、128-bin filterbank log-mel；以 1500 帧窗口和 6 帧边缘重叠分析长音频。Beat 和 downbeat logits 在主线程之外生成，BPM 根据局部 beat 间隔估算，因此可随播放位置反映变速段。
 - 首次加载需要下载/读取约 191 MB 模型；纯 WASM 回退的推理会明显慢于 WebGPU。
 
@@ -44,3 +45,7 @@ npm run build
 - 音乐文件仅在当前浏览器会话处理，刷新页面需重新导入。
 
 M4A 等不受浏览器原生解码/播放支持的音乐格式会通过本地 FFmpeg WASM 转为 WAV，同时用于分析和播放器播放；首次使用需加载其 WASM 核心。
+
+## GitHub Pages
+
+推送到 `main` 后，GitHub Actions 会构建并部署站点。首次部署前，在仓库 **Settings → Pages → Build and deployment** 中将 **Source** 设为 **GitHub Actions**。GitHub Actions 会启用 LFS 下载模型，Pages 构建产物包含该模型。
